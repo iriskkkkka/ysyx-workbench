@@ -1,5 +1,5 @@
 /***************************************************************************************
-* Copyright (c) 2014-2024 Zihao Yu, Nanjing University
+* Copyright (c) 2014-2022 Zihao Yu, Nanjing University
 *
 * NEMU is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -14,6 +14,7 @@
 ***************************************************************************************/
 
 #include <common.h>
+#include <stdio.h>
 
 void init_monitor(int, char *[]);
 void am_init_monitor();
@@ -27,9 +28,8 @@ int main(int argc, char *argv[]) {
 #else
   init_monitor(argc, argv);
 #endif
-
   /* Start engine. */
   engine_start();
-
+  
   return is_exit_status_bad();
 }

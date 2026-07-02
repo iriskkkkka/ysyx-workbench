@@ -1,5 +1,5 @@
 /***************************************************************************************
-* Copyright (c) 2014-2024 Zihao Yu, Nanjing University
+* Copyright (c) 2014-2022 Zihao Yu, Nanjing University
 *
 * NEMU is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -23,6 +23,17 @@ static int is_batch_mode = false;
 
 void init_regex();
 void init_wp_pool();
+word_t vaddr_ifetch(paddr_t addr, int len);
+unsigned expr(char *e, bool *success);
+typedef struct watchpoint {
+  int NO;
+  struct watchpoint *next;
+  char str[32];
+  unsigned value;
+} WP;
+WP* new_wp(char *input, unsigned initial);
+void free_wp(int NO);
+WP* gethead(void);
 
 /* We use the `readline' library to provide more flexibility to read from stdin. */
 static char* rl_gets() {
@@ -47,10 +58,130 @@ static int cmd_c(char *args) {
   return 0;
 }
 
+static int cmd_si(char *args){
+  /* extract the first argument */
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL) {
+    cpu_exec(1);
+  }
+  else {
+    int num;
+    sscanf(arg, "%d", &num);  
+    cpu_exec(num);
+    }
+  return 0;
+}
+
+static int cmd_info(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("requires subcommand!\n");
+    return 0;
+  }
+  if (strcmp(arg, "r")==0) {
+    isa_reg_display();
+  }else if (strcmp(arg, "w")==0){
+    WP *in_use = gethead();
+    while (in_use != NULL){
+      printf("watchpoint number - %d\ntracked expression - %s\nvalue - %u\n", in_use->NO, in_use->str, in_use->value);
+      printf("-------------------------------------------------------------------------\n");
+      in_use = in_use->next;
+    }
+    return 0;
+  }
+  else {
+    printf("wrong subcommand!\n");
+  }
+  return 0;
+}
 
 static int cmd_q(char *args) {
+  nemu_state.state = NEMU_QUIT;
   return -1;
 }
+
+
+static int x(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("Needs an argument\n");
+    return 0;
+  }
+  else {
+    int num;
+    sscanf(arg, "%d", &num);
+    vaddr_t start;
+    arg = strtok(NULL, " ");
+    if (arg==NULL){
+      printf("Specify address\n");
+      return 0;
+    }
+    sscanf(arg, FMT_WORD, &start);
+    for (int i = 0; i<num; i++){
+      word_t value = vaddr_ifetch(start, 4);
+      start=start+4;
+      printf(FMT_WORD "\n", value);
+    } 
+    return 0;
+  }
+}
+
+static int p(char *args){
+  char *arg = strtok(NULL, "");
+  if (arg == NULL){
+    printf("Needs an expression argument\n");
+    return 0;
+  }
+  else {
+    bool success = false;
+    unsigned kek = expr(arg, &success);
+    if (success){
+      printf("value - %u\n", kek); 
+      return 0;
+    } else{
+      printf("couldnt find\n");
+      return 0;
+    }
+  }
+}
+
+static int w(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("Needs an argument\n");
+    return 0;
+  }
+  else {
+    char command;
+    sscanf(arg, "%c", &command);
+    if (command == 'n'){
+      char *arg = strtok(NULL, "");
+      char str[32];
+      bool success = false;
+      snprintf(str, sizeof(str), "%s", arg);
+      unsigned initial = expr(str, &success);
+      if (success){
+        new_wp(str, initial);
+      } else{
+        printf("wrong expresion");
+        return 0;
+      }
+      return 0;
+    } else if (command == 'd'){
+      char *arg = strtok(NULL, " ");
+      int NO;
+      sscanf(arg, "%d", &NO);
+      free_wp(NO);
+      return 0;
+
+
+    } else {
+      printf("insert valid command\n");
+    }
+    return 0;
+  }
+}
+
 
 static int cmd_help(char *args);
 
@@ -62,9 +193,11 @@ static struct {
   { "help", "Display information about all supported commands", cmd_help },
   { "c", "Continue the execution of the program", cmd_c },
   { "q", "Exit NEMU", cmd_q },
-
-  /* TODO: Add more commands */
-
+  { "si", "Execute [n] amount of instructions", cmd_si},
+  { "info", "Press info r to get registers information", cmd_info},
+  { "x", "Memory read type int 0x80000000+ address", x},
+  { "p", "Expression evaluation", p},
+  { "w", "watchpoint functions", w}
 };
 
 #define NR_CMD ARRLEN(cmd_table)

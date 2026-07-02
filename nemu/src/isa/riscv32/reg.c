@@ -1,5 +1,5 @@
 /***************************************************************************************
-* Copyright (c) 2014-2024 Zihao Yu, Nanjing University
+* Copyright (c) 2014-2022 Zihao Yu, Nanjing University
 *
 * NEMU is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -24,8 +24,26 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
+  int i = 0;
+  while (i<sizeof(regs) / sizeof(regs[0])){
+    printf("value of %s is - 0x%x\n", regs[i], cpu.gpr[i]);
+    i++;
+  }
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {
+  int i = 0;
+  while (i<sizeof(regs) / sizeof(regs[0])){
+    if(strcmp(regs[i], s) == 0){
+      *success = true;
+      return cpu.gpr[i];
+    }
+    i++;
+  }
+  if(strcmp(s, "pc")==0){
+    *success = true;
+    return cpu.pc;
+  }
+  *success = false;
   return 0;
 }

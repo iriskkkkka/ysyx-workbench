@@ -1,5 +1,5 @@
 /***************************************************************************************
-* Copyright (c) 2014-2024 Zihao Yu, Nanjing University
+* Copyright (c) 2014-2022 Zihao Yu, Nanjing University
 *
 * NEMU is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -20,9 +20,8 @@
 typedef struct watchpoint {
   int NO;
   struct watchpoint *next;
-
-  /* TODO: Add more members if necessary */
-
+  char str[32];
+  unsigned value;
 } WP;
 
 static WP wp_pool[NR_WP] = {};
@@ -39,5 +38,77 @@ void init_wp_pool() {
   free_ = wp_pool;
 }
 
-/* TODO: Implement the functionality of watchpoint */
+WP* gethead(void){
+  if (head==NULL){
+    printf("nothing in use\n");
+    return NULL;
+  }
+  return head;
+}
 
+WP* new_wp(char *input, unsigned initial){
+  Assert(!(free_ == NULL), "No free watchpoints left!");
+  if (head == NULL){
+    head = free_;
+    free_ = free_->next;
+    snprintf(head->str, sizeof(head->str), "%s", input);
+    head->value = initial;
+    head->next = NULL;
+    return free_;
+  } else{
+    WP *tmp = head;
+    while (tmp->next != NULL){
+      tmp = tmp->next;
+    }
+    tmp->next = free_;
+    snprintf((tmp->next)->str, sizeof((tmp->next)->str), "%s", input);
+    (tmp->next)->value = initial;
+    free_ = free_->next;
+    (tmp->next)->next = NULL;
+    return free_;
+  }
+}
+
+
+
+void free_wp(int NO){
+  WP *tmp = head;
+  WP *tmp_free = free_;
+  if (head == NULL){
+    printf("No watchpoints in use\n");
+    return;
+  }
+
+  if (head->NO == NO){
+    if (tmp_free == NULL){
+      free_ = head;
+      head = head->next;
+      (free_)->next = NULL;
+      return;
+    }
+    while(tmp_free->next != NULL){
+      tmp_free=tmp_free->next;
+    }
+    tmp_free->next = head;
+    head = head->next;
+    (tmp_free->next)->next = NULL;
+    return;
+  }
+  while (tmp->next != NULL && tmp->next->NO != NO){
+    tmp = tmp->next;
+  }
+  Assert(!(tmp->next == NULL), "No such watchpoint!");
+  if (tmp_free == NULL){
+    free_ = tmp->next;
+    tmp->next = (tmp->next)->next;
+    (free_)->next = NULL;
+    return;
+  }
+  while(tmp_free->next != NULL){
+    tmp_free=tmp_free->next;
+  }
+  tmp_free->next = tmp->next;
+  tmp->next = (tmp->next)->next;
+  (tmp_free->next)->next = NULL;
+  return;
+}
