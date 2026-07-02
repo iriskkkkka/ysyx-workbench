@@ -1,5 +1,5 @@
-STUID = ysyx_22040000
-STUNAME = 张三
+STUID = 100023349
+STUNAME = Idris Kanyshuly
 
 # DO NOT modify the following code!!!
 
