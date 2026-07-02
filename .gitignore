@@ -12,3 +12,5 @@
 !init.sh
 /nvboard
 /fceux-am
+npc/obj_dir/
+yosys-sta/
