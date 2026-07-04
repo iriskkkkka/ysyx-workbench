@@ -30,7 +30,7 @@ static struct rule {
 } rules[] = {
   {" +", TK_NOTYPE},  
   {"0x[0-9a-f]+", TK_HEXADECIMAL},   
-  {"[0-9]+u", TK_DECIMAL},
+  {"[0-9]+", TK_DECIMAL},
   {"\\$[a-z0-9]+", TK_REGISTER}, 
   {"\\)", ')'},
   {"\\(", '('},        
@@ -84,8 +84,8 @@ static bool make_token(char *e) {
         char *substr_start = e + position;
         int substr_len = pmatch.rm_eo;
 
-       //Log("match rules[%d] = \"%s\" at position %d with len %d: %.*s",
-         //   i, rules[i].regex, position, substr_len, substr_len, substr_start);
+       Log("match rules[%d] = \"%s\" at position %d with len %d: %.*s",
+         i, rules[i].regex, position, substr_len, substr_len, substr_start);
 
         position += substr_len;
         switch (rules[i].token_type) {

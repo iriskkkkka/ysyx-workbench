@@ -40,7 +40,6 @@ void init_wp_pool() {
 
 WP* gethead(void){
   if (head==NULL){
-    printf("nothing in use\n");
     return NULL;
   }
   return head;

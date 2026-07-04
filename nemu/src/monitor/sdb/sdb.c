@@ -82,6 +82,10 @@ static int cmd_info(char *args){
     isa_reg_display();
   }else if (strcmp(arg, "w")==0){
     WP *in_use = gethead();
+    if (in_use == NULL){
+      printf("nothing in use\n");
+      return 0;
+    }
     while (in_use != NULL){
       printf("watchpoint number - %d\ntracked expression - %s\nvalue - %u\n", in_use->NO, in_use->str, in_use->value);
       printf("-------------------------------------------------------------------------\n");
