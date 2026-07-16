@@ -177,8 +177,6 @@ static int w(char *args){
       sscanf(arg, "%d", &NO);
       free_wp(NO);
       return 0;
-
-
     } else {
       printf("insert valid command\n");
     }
@@ -266,7 +264,6 @@ void sdb_mainloop() {
         break;
       }
     }
-
     if (i == NR_CMD) { printf("Unknown command '%s'\n", cmd); }
   }
 }
@@ -274,7 +271,6 @@ void sdb_mainloop() {
 void init_sdb() {
   /* Compile the regular expressions. */
   init_regex();
-
   /* Initialize the watchpoint pool. */
   init_wp_pool();
 }

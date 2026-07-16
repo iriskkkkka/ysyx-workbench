@@ -67,6 +67,8 @@ uint64_t get_time();
   } while (0) \
 )
 
+
+
 #define _Log(...) \
   do { \
     printf(__VA_ARGS__); \

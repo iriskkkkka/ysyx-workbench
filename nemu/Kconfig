@@ -135,6 +135,22 @@ config WATCHPOINT
   bool "Enable WATCHPOINT"
   default y
 
+config DTRACE
+  bool "Enable DTRACE"
+  default y
+
+config MTRACE
+  bool "Enable MTRACE"
+  default y
+
+config FTRACE
+  bool "Enable FTRACE"
+  default y
+
+config ETRACE
+  bool "Enable FTRACE"
+  default y
+
 config TRACE_START
   depends on TRACE
   int "When tracing is enabled (unit: number of instructions)"

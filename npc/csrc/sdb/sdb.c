@@ -1,0 +1,280 @@
+#include <stdio.h>               
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <readline/readline.h>   
+#include <readline/history.h>
+#include "sdb.h"
+
+static int is_batch_mode = false;
+
+void init_regex();
+void init_wp_pool();
+unsigned expr(char *e, bool *success);
+
+typedef struct watchpoint {
+  int NO;
+  struct watchpoint *next;
+  char str[32];
+  unsigned value;
+} WP;
+WP* new_wp(char *input, unsigned initial);
+void free_wp(int NO);
+WP* gethead(void);
+
+
+void cpu_exec(int n){
+    bool iswp = false;
+    if (n<0){
+        while (!npc_trap & !iswp){
+            iswp = single_cycle(); 
+        }
+        return;
+    } else{
+        for (int i = 0; i<n; i++){
+            iswp = single_cycle();
+            if (iswp){
+              return;
+            }
+        }
+        return;
+    }
+}
+
+/* We use the `readline' library to provide more flexibility to read from stdin. */
+static char* rl_gets() {
+  static char *line_read = NULL;
+  if (line_read) {
+    free(line_read);
+    line_read = NULL;
+  }
+  line_read = readline("(npc) ");
+  if (line_read && *line_read) {
+    add_history(line_read);
+  }
+  return line_read;
+}
+
+static int cmd_c(char *args) {
+  cpu_exec(-1);
+  return 0;
+}
+
+static int cmd_si(char *args){
+  /* extract the first argument */
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL) {
+    cpu_exec(1);
+  }
+  else {
+    int num;
+    sscanf(arg, "%d", &num);  
+    cpu_exec(num);
+    }
+  return 0;
+}
+
+static int cmd_info(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("requires subcommand!\n");
+    return 0;
+  }
+  if (strcmp(arg, "r")==0) {
+    isa_reg_display();
+  }else if (strcmp(arg, "w")==0){
+    WP *in_use = gethead();
+    if (in_use == NULL){
+      printf("nothing in use\n");
+      return 0;
+    }
+    while (in_use != NULL){
+      printf("watchpoint number - %d\ntracked expression - %s\nvalue - %u\n", in_use->NO, in_use->str, in_use->value);
+      printf("-------------------------------------------------------------------------\n");
+      in_use = in_use->next;
+    }
+    return 0;
+  }
+  else {
+    printf("wrong subcommand!\n");
+  }
+  return 0;
+}
+
+static int cmd_q(char *args) {
+  return -1;
+}
+
+
+static int x(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("Needs an argument\n");
+    return 0;
+  }
+  else {
+    int num;
+    sscanf(arg, "%d", &num);
+    uint32_t start;
+    arg = strtok(NULL, " ");
+    if (arg==NULL){
+      printf("Specify address\n");
+      return 0;
+    }
+    sscanf(arg,"%x", &start);
+    for (int i = 0; i<num; i++){
+      uint32_t value = pmem_read(start);
+      start=start+4;
+      printf("%u\n", value);
+    } 
+    return 0;
+  }
+}
+static int p(char *args){
+  char *arg = strtok(NULL, "");
+  if (arg == NULL){
+    printf("Needs an expression argument\n");
+    return 0;
+  }
+  else {
+    bool success = false;
+    unsigned kek = expr(arg, &success);
+    if (success){
+      printf("value - %u\n", kek); 
+      return 0;
+    } else{
+      printf("couldnt find\n");
+      return 0;
+    }
+  }
+}
+
+static int w(char *args){
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL){
+    printf("Needs an argument\n");
+    return 0;
+  }
+  else {
+    char command;
+    sscanf(arg, "%c", &command);
+    if (command == 'n'){
+      char *arg = strtok(NULL, "");
+      char str[32];
+      bool success = false;
+      snprintf(str, sizeof(str), "%s", arg);
+      unsigned initial = expr(str, &success);
+      if (success){
+        new_wp(str, initial);
+      } else{
+        printf("wrong expresion");
+        return 0;
+      }
+      return 0;
+    } else if (command == 'd'){
+      char *arg = strtok(NULL, " ");
+      int NO;
+      sscanf(arg, "%d", &NO);
+      free_wp(NO);
+      return 0;
+
+
+    } else {
+      printf("insert valid command\n");
+    }
+    return 0;
+  }
+}
+
+
+static int cmd_help(char *args);
+
+static struct {
+  const char *name;
+  const char *description;
+  int (*handler) (char *);
+} cmd_table [] = {
+  { "help", "Display information about all supported commands", cmd_help },
+  { "c", "Continue the execution of the program", cmd_c },
+  { "q", "Exit NEMU", cmd_q },
+  { "si", "Execute [n] amount of instructions", cmd_si},
+  { "info", "Press info r to get registers information", cmd_info},
+  { "x", "Memory read type int 0x80000000+ address", x},
+  { "p", "Expression evaluation", p},
+  { "w", "watchpoint functions", w}
+};
+
+#define NR_CMD ARRLEN(cmd_table)
+
+static int cmd_help(char *args) {
+  /* extract the first argument */
+  char *arg = strtok(NULL, " ");
+  int i;
+
+  if (arg == NULL) {
+    /* no argument given */
+    for (i = 0; i < NR_CMD; i ++) {
+      printf("%s - %s\n", cmd_table[i].name, cmd_table[i].description);
+    }
+  }
+  else {
+    for (i = 0; i < NR_CMD; i ++) {
+      if (strcmp(arg, cmd_table[i].name) == 0) {
+        printf("%s - %s\n", cmd_table[i].name, cmd_table[i].description);
+        return 0;
+      }
+    }
+    printf("Unknown command '%s'\n", arg);
+  }
+  return 0;
+}
+
+void sdb_set_batch_mode() {
+  is_batch_mode = true;
+}
+
+void sdb_mainloop() {
+  if (is_batch_mode) {
+    cmd_c(NULL);
+    return;
+  }
+
+  for (char *str; (str = rl_gets()) != NULL; ) {
+    char *str_end = str + strlen(str);
+
+    /* extract the first token as the command */
+    char *cmd = strtok(str, " ");
+    if (cmd == NULL) { continue; }
+
+    /* treat the remaining string as the arguments,
+     * which may need further parsing
+     */
+    char *args = cmd + strlen(cmd) + 1;
+    if (args >= str_end) {
+      args = NULL;
+    }
+
+#ifdef CONFIG_DEVICE
+    extern void sdl_clear_event_queue();
+    sdl_clear_event_queue();
+#endif
+
+    int i;
+    for (i = 0; i < NR_CMD; i ++) {
+      if (strcmp(cmd, cmd_table[i].name) == 0) {
+        if (cmd_table[i].handler(args) < 0) { return; }
+        break;
+      }
+    }
+
+    if (i == NR_CMD) { printf("Unknown command '%s'\n", cmd); }
+  }
+}
+
+void init_sdb() {
+  /* Compile the regular expressions. */
+  init_regex();
+
+  /* Initialize the watchpoint pool. */
+  init_wp_pool();
+}
