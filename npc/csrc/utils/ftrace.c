@@ -6,11 +6,13 @@
 #include <elf.h>
 
 #ifdef CONFIG_FTRACE
+
 typedef struct {
   char name[64];
   uint32_t addr;
   Elf32_Word size;
 } Symbol;
+
 static Symbol *symbols = NULL;
 static int symbol_count = 0;
 
@@ -59,6 +61,7 @@ static const char* find_func(uint32_t addr) {
   }
   return "???";
 }
+
 static int depth = 0;
 
 void ftrace_jal(uint32_t pc, uint32_t target, int rd) {
@@ -82,4 +85,5 @@ void ftrace_jalr(uint32_t pc, uint32_t target, int rd, int rs1) {
     depth++;
   }
 }
+
 #endif

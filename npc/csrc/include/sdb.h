@@ -15,6 +15,7 @@ void init_sdb();
 bool single_cycle();
 void reset(int n);
 int  pmem_read(int addr);
+void mrom_read(int32_t addr, int32_t *data);
 uint32_t isa_reg_str2val(const char *s, bool *success);
 void     isa_reg_display(void);
 extern bool npc_trap;

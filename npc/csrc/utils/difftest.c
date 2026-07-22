@@ -8,7 +8,7 @@
 #include <cstring>
 #include <assert.h>
 
-#define PMEM_BASE  0x80000000u
+#define MROM_BASE  0x20000000u
 #define DIFFTEST_TO_DUT false
 #define DIFFTEST_TO_REF true
 
@@ -32,9 +32,9 @@ void init_difftest(const char *ref_so_file, long img_size) {
     ref_difftest_exec   = (decltype(ref_difftest_exec))  dlsym(handle, "difftest_exec");
     ref_difftest_init   = (decltype(ref_difftest_init))  dlsym(handle, "difftest_init");
     ref_difftest_init(0);
-    ref_difftest_memcpy(PMEM_BASE, guest_to_host_ptr(PMEM_BASE), img_size, DIFFTEST_TO_REF);
+    ref_difftest_memcpy(MROM_BASE, guest_to_host_ptr(MROM_BASE), img_size, DIFFTEST_TO_REF);
     CPU_state ref;
-    for (int i = 0; i < 32; i++) ref.gpr[i] = dut_gpr(i);
+    for (int i = 0; i < 16; i++) ref.gpr[i] = dut_gpr(i);
     ref.pc = dut_pc();
     ref_difftest_regcpy(&ref, DIFFTEST_TO_REF);
     skip_next = false; 
@@ -43,24 +43,33 @@ void init_difftest(const char *ref_so_file, long img_size) {
 void difftest_skip_ref() { skip_next = true; }
 
 void difftest_step(uint32_t pc) {
-    if (!difftest_on) return;
-    if (skip_next) {
-        skip_next = false;  
-        CPU_state ref;
-        for (int i = 0; i < 32; i++) ref.gpr[i] = dut_gpr(i);
-        ref.pc = dut_pc();
-        ref_difftest_regcpy(&ref, DIFFTEST_TO_REF);
-        return;
+  if (!difftest_on) return;
+
+  CPU_state ref;
+
+  if (skip_next) {
+    skip_next = false;
+    for (int i = 0; i < 16; i++) ref.gpr[i] = dut_gpr(i);
+    ref.pc = dut_pc();
+    ref_difftest_regcpy(&ref, DIFFTEST_TO_REF);
+    return;
+  }
+
+  ref_difftest_exec(1);
+  ref_difftest_regcpy(&ref, DIFFTEST_TO_DUT);
+
+  for (int i = 0; i < 16; i++) {
+    if (ref.gpr[i] != dut_gpr(i)) {
+      printf("Register %d mismatch, pc=0x%08x: nemu=0x%08x npc=0x%08x\n",
+             i, pc, ref.gpr[i], dut_gpr(i));
+      difftest_fail();
+      return;
     }
-    ref_difftest_exec(1);                     
-    CPU_state ref;
-    ref_difftest_regcpy(&ref, DIFFTEST_TO_DUT);
-    for (int i = 0; i < 32; i++) {
-        if (ref.gpr[i] != dut_gpr(i)) {
-            printf("Register %d mismatch, pc=0x%08x: nemu=0x%08x npc=0x%08x\n",
-                   i, pc, ref.gpr[i], dut_gpr(i));
-            assert(0);
-        }
-    }
+  }
+
+  if (ref.pc != dut_pc()) {
+    printf("PC mismatch at 0x%08x: nemu=0x%08x npc=0x%08x\n", pc, ref.pc, dut_pc());
+    difftest_fail();
+  }
 }
 #endif

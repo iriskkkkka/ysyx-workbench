@@ -1,4 +1,4 @@
-STUID = 100023349
+STUID = 26000004
 STUNAME = Idris Kanyshuly
 
 # DO NOT modify the following code!!!

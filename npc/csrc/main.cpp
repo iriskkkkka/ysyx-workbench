@@ -1,4 +1,4 @@
-#include <Vtop.h>
+#include <VysyxSoCFull.h>
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 #include <cstdint>
@@ -13,14 +13,42 @@
 #include <getopt.h>
 #include "difftest.h"
 
+#define PMEM_BASE  0x80000000u
+#define PMEM_SIZE  128 * 1024 * 1024 
+#define MROM_BASE  0x20000000
+#define MROM_SIZE  0x00001000 
+#define UART_ADDR  0xa00003f8
+#define RTC_ADDR   0xa0000048
+
+static uint32_t gpr_cache[16], pc_cache, inst_cache;
+static bool     commit_flag;
+static int      trap_code = 0;
+bool            npc_trap = false;
+static uint8_t* mrom = nullptr; 
+
+extern "C" void flash_read(uint32_t addr, uint32_t *data)    { assert(0); }
+extern "C" void mrom_read(int32_t addr, int32_t *data) {    
+    uint32_t idx = ((uint32_t)addr - MROM_BASE) & ~0x3u;
+    if (idx >= MROM_SIZE) { assert(0);}
+    *data = *(uint32_t*)(mrom + idx);
+}
+uint32_t        dut_gpr   (int i)                            { return gpr_cache[i]; }
+uint32_t        dut_pc    (void)                             { return pc_cache; }
+void            difftest_fail(void)                          { npc_trap = true; trap_code = 1; }
+
+static uint8_t* pmem = nullptr; 
+
+unsigned expr(char *e, bool *success);
+
 typedef struct watchpoint {
   int NO;
   struct watchpoint *next;
   char str[32];
   unsigned value;
 } WP;
+
 WP* gethead(void);
-unsigned expr(char *e, bool *success);
+
 const char *regs[] = {
   "$0", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
   "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
@@ -30,19 +58,10 @@ const char *regs[] = {
 
 char logbuf[128];
 
-#define PMEM_BASE  0x80000000u
-#define PMEM_SIZE  128 * 1024 * 1024   
-#define UART_ADDR  0xa00003f8
-#define RTC_ADDR   0xa0000048
-
-static uint8_t* pmem = nullptr;
-static uint64_t boot = 0;
-static uint64_t rtc_latch = 0;
-static Vtop dut;
+static VysyxSoCFull dut;
 static VerilatedVcdC tfp;
 static vluint64_t sim_time = 0;
-bool npc_trap = false;
-static int trap_code = 0;
+static int counter =0;
 
 static char *img_file  = nullptr;
 static char *elf_file  = nullptr;
@@ -74,13 +93,13 @@ static int parse_args(int argc, char *argv[]) {
 }
 
 
-static uint64_t uptime() {
-    struct timeval tv; 
-    gettimeofday(&tv, nullptr);
-    uint64_t now = tv.tv_sec * 1000000ULL + tv.tv_usec;
-    if (boot == 0) boot = now;
-    return now - boot;
+extern "C" void ebreak(int a0) {
+    if (npc_trap) return;
+    trap_code = a0;
+    npc_trap = true;
 }
+extern "C" void gpr_update(int idx, int val) { gpr_cache[idx] = val; }
+extern "C" void commit(int pc, int inst) { pc_cache = pc; inst_cache = inst; commit_flag = true;}
 
 static uint32_t guest_to_host(uint32_t guest_addr) {
     return guest_addr - PMEM_BASE;   
@@ -96,7 +115,23 @@ long init_pmem(const char* img) {
     return (long)n;
 }
 
-extern "C" int pmem_read(int addr) {
+static long init_mrom(const char *img) {
+    mrom = (uint8_t*)malloc(MROM_SIZE);
+    memset(mrom, 0, MROM_SIZE);
+    FILE *fp = fopen(img, "rb");
+    if (!fp) {exit(1); }
+    size_t n = fread(mrom, 1, MROM_SIZE, fp);
+    fclose(fp);
+    return (long)n;
+}
+
+uint8_t* guest_to_host_ptr(uint32_t addr) {
+    if (addr >= MROM_BASE && addr < MROM_BASE + MROM_SIZE)
+        return mrom + (addr - MROM_BASE);
+    return pmem + (addr - PMEM_BASE);
+}
+
+int pmem_read(int addr) {
     #ifdef CONFIG_MTRACE
         printf("Read address - 0x%x\n", addr);
     #endif
@@ -104,14 +139,13 @@ extern "C" int pmem_read(int addr) {
         #ifdef CONFIG_DIFFTEST
             difftest_skip_ref();
         #endif
-        rtc_latch = uptime(); 
-        return (uint32_t)rtc_latch&0xffffffff;
+        return 0;
     }
     if ((uint32_t)addr == RTC_ADDR+4){
         #ifdef CONFIG_DIFFTEST
             difftest_skip_ref();
         #endif
-        return (uint32_t)(rtc_latch>>32);
+        return 0;
     } 
     if ((uint32_t)addr == UART_ADDR){ 
         #ifdef CONFIG_DIFFTEST
@@ -126,34 +160,11 @@ extern "C" int pmem_read(int addr) {
     return *(uint32_t*)(pmem + idx);
 }
 
-extern "C" void pmem_write(int waddr, int wdata, char wmask) {
-    #ifdef CONFIG_MTRACE
-        printf("Write address - 0x%x\n", waddr);
-    #endif
-    if ((uint32_t)waddr == UART_ADDR) { 
-        #ifdef CONFIG_DIFFTEST
-            difftest_skip_ref();
-        #endif
-        putchar(wdata & 0xff); fflush(stdout); 
-        return; }
-    uint32_t base = (uint32_t)guest_to_host(waddr) & ~0x3u;      
-    for (int i = 0; i < 4; i++) {
-        if (wmask & (1 << i)) {                   
-            pmem[base + i] = (wdata >> (i * 8)) & 0xFF;          
-        }
-    }
-}
-
-extern "C" void ebreak(int a0) {
-    if (npc_trap) return;
-    trap_code = a0;
-    npc_trap = true;
-}
 
 void isa_reg_display(){
     int i = 0;
-    while(i<32){
-        printf("Reg %d = 0x%x\n", i, dut.gpr_out[i]);
+    while(i<16){
+        printf("Reg %d = 0x%x\n", i, dut_gpr(i));
         i++;
     }
     return;
@@ -161,25 +172,21 @@ void isa_reg_display(){
 
 uint32_t isa_reg_str2val(const char *s, bool *success) {
   int i = 0;
-  while (i<32){
+  while (i<16){
     if(strcmp(regs[i], s) == 0){
       *success = true;
-      return dut.gpr_out[i];
+      return dut_gpr(i);
     }
     i++;
   }
   if(strcmp(s, "pc")==0){
     *success = true;
-    return dut.pc_out;
+    return dut_pc();
   }
   *success = false;
   return 0;
 }
 
-uint32_t dut_gpr(int i) { return dut.gpr_out[i]; }
-uint32_t dut_pc(void)   { return dut.pc_out; }
-uint8_t *guest_to_host_ptr(uint32_t a) { return pmem + (a - PMEM_BASE); }
-void difftest_fail(void) { npc_trap = true; trap_code = 1; }
 
 #ifdef CONFIG_ITRACE
     static void trace_inst(uint32_t pc, uint32_t inst) {
@@ -207,25 +214,39 @@ void difftest_fail(void) { npc_trap = true; trap_code = 1; }
 #endif
 
 bool single_cycle() {
-    dut.instr = pmem_read(dut.addr);
+    
     #if defined(CONFIG_FTRACE) || defined(CONFIG_ITRACE) || defined(CONFIG_DIFFTEST)
-        uint32_t cur_pc   = dut.pc_out;
-        uint32_t cur_inst = dut.instr;
-        bool trace = !dut.rst;
+        uint32_t cur_pc   = dut_pc();
+        bool trace = !dut.reset;
+        bool do_step = trace && commit_flag; 
     #endif
+
     #ifdef CONFIG_ITRACE
         if (trace) trace_inst(cur_pc, cur_inst);
     #endif
-    dut.clk = 0; dut.eval();
-    tfp.dump(sim_time++);
-    dut.clk = 1; dut.eval();
-    tfp.dump(sim_time++);
-
+    
+    dut.clock = 0; dut.eval();
+    
+    #ifdef CONFIG_WAVE
+        tfp.dump(sim_time);
+    #endif
+    
+    sim_time++;
+    dut.clock = 1; dut.eval();
+    
+    #ifdef CONFIG_WAVE
+        tfp.dump(sim_time);
+    #endif
+    
+    sim_time++;
+    counter = counter + 1;
+    
     #ifdef CONFIG_DIFFTEST
-        if (trace) difftest_step(cur_pc);
+        if (do_step) difftest_step(cur_pc);
+        commit_flag = false;
     #endif
     #ifdef CONFIG_FTRACE
-        if (trace) ftrace_check(cur_pc, cur_inst, dut.pc_out);
+        if (trace) ftrace_check(cur_pc, cur_inst, dut_pc());
     #endif
     #ifdef CONFIG_WATCHPOINT
         WP *wp = gethead();
@@ -234,20 +255,22 @@ bool single_cycle() {
             unsigned new_value = expr(wp->str, &success);
             if (success && wp->value != new_value) {
                 printf("watchpoint %d activated\nprevious value - %u\nnew value - %u\npc - 0x%x\n",
-                    wp->NO, wp->value, new_value, dut.pc_out);
+                    wp->NO, wp->value, new_value, dut_pc());
                 wp->value = new_value;
                 return true;
             }
             wp = wp->next;
         }
     #endif
+    
     return false;
 }
 
 void reset(int n) {
-    dut.rst = 1;
+    dut.reset = 1;
     while (n-- > 0) single_cycle();
-    dut.rst = 0;
+    dut.reset = 0;
+    dut.eval();
 }
 
 int main(int argc, char** argv) {
@@ -261,8 +284,8 @@ int main(int argc, char** argv) {
     dut.trace(&tfp, 99);
     tfp.open("wave.vcd");
 
-    long img_size = init_pmem(img_file);
-
+    long img_size = init_mrom(img_file);
+    
     #ifdef CONFIG_FTRACE
         if (elf_file) init_elf(elf_file);
         else printf("No ELF file is provided\n");
@@ -273,7 +296,7 @@ int main(int argc, char** argv) {
         init_disasm("riscv32-pc-linux-gnu");
     #endif 
     
-    reset(10);
+    reset(100);
 
     #ifdef CONFIG_DIFFTEST
         if (diff_so_file) init_difftest(diff_so_file, img_size);
