@@ -299,6 +299,7 @@ int main(int argc, char** argv) {
     reset(100);
 
     #ifdef CONFIG_DIFFTEST
+        printf("difftest intialiezsed bro\n");
         if (diff_so_file) init_difftest(diff_so_file, img_size);
     #endif
     sdb_mainloop();

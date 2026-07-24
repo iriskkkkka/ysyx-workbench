@@ -13,7 +13,7 @@
 #define DIFFTEST_TO_REF true
 
 typedef struct {
-    uint32_t gpr[32];
+    uint32_t gpr[16];
     uint32_t pc;
 } CPU_state;
 
@@ -54,6 +54,7 @@ void difftest_step(uint32_t pc) {
     ref_difftest_regcpy(&ref, DIFFTEST_TO_REF);
     return;
   }
+  printf("difftest runs bro\n");
 
   ref_difftest_exec(1);
   ref_difftest_regcpy(&ref, DIFFTEST_TO_DUT);
